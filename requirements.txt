@@ -3,3 +3,10 @@ transformers>=4.30.0
 torch>=2.0.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0
+
+streamlit
+unstructured
+pillow
+pdfminer.six
+python-docx
+python-pptx
