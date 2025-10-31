@@ -1,5 +1,5 @@
 ---
-title: Multi Document Summarization
+title: Multi Documents Summarization
 emoji: 🔍
 colorFrom: indigo
 colorTo: purple
