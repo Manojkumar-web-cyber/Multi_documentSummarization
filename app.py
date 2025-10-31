@@ -10,7 +10,6 @@ st.write("Fine-tuned Pegasus Transformer Model")
 def load_model():
     """Load model from Hugging Face Hub"""
     try:
-        # Using the official Pegasus CNN/Daily Mail model
         model = AutoModelForSeq2SeqLM.from_pretrained("google/pegasus-cnn_dailymail")
         tokenizer = AutoTokenizer.from_pretrained("google/pegasus-cnn_dailymail")
         return model, tokenizer
@@ -45,6 +44,9 @@ else:
                 )
                 
                 summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+                
+                # Clean up special tokens
+                summary = summary.replace("<n>", "\n")
                 
                 st.success("✅ Summary Generated!")
                 st.markdown("### Summary")
