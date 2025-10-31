@@ -1,0 +1,18 @@
+{
+  "TextRank": {
+    "rouge1": 43.8283,
+    "rouge2": 7.9696,
+    "rougeL": 34.1313,
+    "rougeLsum": 34.096
+  },
+  "Transformer": {
+    "rouge1": 47.65,
+    "rouge2": 18.75,
+    "rougeL": 24.95
+  },
+  "LSTM-Seq2Seq": {
+    "rouge1": 38.0,
+    "rouge2": 17.0,
+    "rougeL": 32.0
+  }
+}

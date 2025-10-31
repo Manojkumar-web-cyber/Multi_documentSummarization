@@ -1,0 +1,22 @@
+{
+  "name": "Multi-Document Summarization Project",
+  "image": "mcr.microsoft.com/devcontainers/python:3.10",
+
+  // --- DELETE THE 'features' AND 'hostRequirements' BLOCKS ---
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      }
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+  "forwardPorts": [8888],
+  "remoteUser": "vscode"
+}

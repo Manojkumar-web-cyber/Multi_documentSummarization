@@ -1,0 +1,4 @@
+Model,ROUGE-1 (F1),ROUGE-2 (F1),ROUGE-L (F1)
+TextRank,43.8283,7.9696,34.1313
+Transformer,47.65,18.75,24.95
+LSTM-Seq2Seq,38.0,17.0,32.0
