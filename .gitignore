@@ -209,3 +209,16 @@ models/
 # Model files and directories that should not be pushed to Git
 models/pegasus-finetuned/
 *.safetensors
+
+# Additional model formats and cache
+*.bin
+*.pt
+*.ckpt
+*.h5
+*.onnx
+*.tar.gz
+*.zip
+*.pkl
+cache/
+outputs/
+checkpoints/
