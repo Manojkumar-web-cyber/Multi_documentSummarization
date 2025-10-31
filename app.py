@@ -1,74 +1,73 @@
 import streamlit as st
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from unstructured.partition.auto import partition
+import tempfile
+import os
 
-st.set_page_config(page_title="Multi-Document Summarization", layout="wide")
-
-st.title("🚀 Multi-Document Summarization")
-st.write("Fine-tuned Pegasus Transformer Model")
-
-@st.cache_resource
-def load_model():
-    """Load model from Hugging Face Hub"""
-    try:
-        model = AutoModelForSeq2SeqLM.from_pretrained("google/pegasus-cnn_dailymail")
-        tokenizer = AutoTokenizer.from_pretrained("google/pegasus-cnn_dailymail")
-        return model, tokenizer
-    except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None, None
-
-def summarize_text(text, model, tokenizer):
-    """Generate summary for a single text"""
-    inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
-    summary_ids = model.generate(
-        inputs["input_ids"],
-        max_length=150,
-        num_beams=4,
-        early_stopping=True
+def get_uploaded_files():
+    """Upload multiple file types: PDF, DOCX, PPTX, TXT"""
+    uploaded_files = st.file_uploader(
+        "📁 Upload your documents",
+        type=["pdf", "docx", "pptx", "txt"],
+        accept_multiple_files=True,
+        help="Supports PDF, Word documents, PowerPoint presentations, and text files"
     )
-    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-    return summary.replace("<n>", "\n")
+    return uploaded_files
 
-model, tokenizer = load_model()
+def process_uploaded_files(uploaded_files):
+    """Process multiple uploaded files using unstructured"""
+    all_documents = {}
+    
+    if uploaded_files:
+        st.info(f"📄 Loaded {len(uploaded_files)} file(s)")
+        
+        for file in uploaded_files:
+            try:
+                # Save file temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file.name.split('.')[-1]}") as tmp:
+                    tmp.write(file.getbuffer())
+                    tmp_path = tmp.name
+                
+                # Partition file (works for all formats)
+                elements = partition(tmp_path)
+                text = "\n".join([str(el) for el in elements])
+                all_documents[file.name] = text
+                
+                # Clean up temp file
+                os.remove(tmp_path)
+                
+                st.success(f"✅ Processed: {file.name}")
+            except Exception as e:
+                st.error(f"Error processing {file.name}: {str(e)}")
+                continue
+        
+        return all_documents if all_documents else None
+    else:
+        st.info("Please upload documents to begin")
+        return None
 
-if model is None:
-    st.error("Could not load model. Please check your internet connection.")
-else:
-    st.success("✅ Model loaded successfully!")
+def main():
+    st.set_page_config(page_title="Multi-Document Summarizer", layout="wide")
+    st.title("🔤 Multi-Document Summarizer")
     
-    # Tabs for different input methods
-    tab1, tab2 = st.tabs(["📝 Multiple Text Inputs", "📄 File Upload"])
+    uploaded_files = get_uploaded_files()
+    documents = process_uploaded_files(uploaded_files)
     
-    with tab1:
-        st.write("**Enter multiple documents below (one per box):**")
+    if documents:
+        tab1, tab2 = st.tabs(["Combined View", "Individual Documents"])
         
-        # Initialize session state for documents
-        if 'num_docs' not in st.session_state:
-            st.session_state.num_docs = 2
+        with tab1:
+            st.subheader("📖 Combined Document Content")
+            combined_text = "\n\n".join([f"## {name}\n{text}" for name, text in documents.items()])
+            st.text_area("Combined Text:", combined_text, height=400)
         
-        # Add/Remove document buttons
-        col1, col2 = st.columns([1, 5])
-        with col1:
-            if st.button("➕ Add Document"):
-                st.session_state.num_docs += 1
-        with col2:
-            if st.button("➖ Remove Document") and st.session_state.num_docs > 1:
-                st.session_state.num_docs -= 1
-        
-        # Multiple text inputs
-        documents = []
-        for i in range(st.session_state.num_docs):
-            doc = st.text_area(
-                f"Document {i+1}:", 
-                height=150, 
-                key=f"doc_{i}",
-                placeholder=f"Paste document {i+1} here..."
-            )
-            if doc.strip():
-                documents.append(doc)
-        
-        # Summary type selection
-        summary_type = st.radio(
+        with tab2:
+            selected_doc = st.selectbox("Select document to view:", list(documents.keys()))
+            if selected_doc:
+                st.subheader(f"📄 {selected_doc}")
+                st.text_area("Document Content:", documents[selected_doc], height=400)
+
+if __name__ == "__main__":
+    main()
             "Summary Type:",
             ["Combined Summary", "Individual Summaries"],
             horizontal=True
