@@ -7,7 +7,7 @@ protobuf>=3.20.0
 streamlit
 
 pillow
-PyPDF2  # <-- ADD THIS LINE
 pdfminer.six
-python-docx
-python-pptx
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+python-pptx>=0.6.21

@@ -21,11 +21,11 @@ with st.sidebar:
         help="Adjust the desired length of the summary"
     )
     
-    # SIMPLIFIED: Only AI modes since you want to use your model
+    # FIXED: Better mode descriptions
     processing_mode = st.radio(
         "Processing Mode:",
-        ["🚀 Fast AI", "🎯 Quality AI"],
-        help="Fast AI: Single combined summary | Quality AI: Individual + Combined summaries"
+        ["📊 Smart Extract", "🤖 AI Combined", "🎯 Full Quality"],
+        help="Smart Extract: Fast text analysis | AI Combined: Single AI call | Full Quality: Individual + Combined"
     )
     
     st.info(f"📝 Summary will be ~{summary_length} words")
@@ -77,10 +77,9 @@ def extract_text_from_docx(file):
 def load_model():
     """Load model from Hugging Face Hub with caching"""
     try:
-        with st.spinner("🔄 Loading Pegasus model... This may take a minute"):
+        with st.spinner("🔄 Loading model... This may take a minute"):
             model = AutoModelForSeq2SeqLM.from_pretrained("google/pegasus-cnn_dailymail")
             tokenizer = AutoTokenizer.from_pretrained("google/pegasus-cnn_dailymail")
-        st.success("✅ Pegasus model loaded successfully!")
         return model, tokenizer
     except Exception as e:
         st.error(f"Error loading model: {e}")
@@ -92,14 +91,10 @@ def summarize_text(text, model, tokenizer, max_length=150):
         return "No content to summarize."
     
     try:
-        # Better token length calculation
         max_tokens = min(int(max_length * 1.3), 512)
         
-        # Clean the text first
-        cleaned_text = clean_text(text)
-        
         inputs = tokenizer(
-            cleaned_text, 
+            text, 
             return_tensors="pt", 
             max_length=1024, 
             truncation=True,
@@ -109,109 +104,130 @@ def summarize_text(text, model, tokenizer, max_length=150):
         summary_ids = model.generate(
             inputs["input_ids"],
             max_length=max_tokens,
-            min_length=max(40, max_tokens // 3),
+            min_length=max(30, max_tokens // 3),
             num_beams=4,
             early_stopping=True,
             length_penalty=0.8,
             no_repeat_ngram_size=3,
         )
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        return clean_summary(summary)
+        return summary.replace("<n>", " ")
     except Exception as e:
         return f"Error generating summary: {str(e)}"
-
-def clean_text(text):
-    """Clean text before processing"""
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text)
-    # Remove special characters but keep basic punctuation
-    text = re.sub(r'[^\w\s.,!?;:]', '', text)
-    return text.strip()
-
-def clean_summary(summary):
-    """Clean the generated summary"""
-    # Remove double periods and other artifacts
-    summary = re.sub(r'\.\.+', '.', summary)
-    summary = re.sub(r'\s+', ' ', summary)
-    # Ensure proper sentence capitalization
-    sentences = summary.split('. ')
-    sentences = [s.strip().capitalize() for s in sentences if s.strip()]
-    return '. '.join(sentences)
-
-def count_words(text):
-    """Accurate word count"""
-    return len(text.split())
 
 # Load model
 model, tokenizer = load_model()
 
-# --- PROPER SUMMARIZATION STRATEGIES THAT USE YOUR MODEL ---
-def fast_ai_summary(file_contents_data, model, tokenizer, max_length=150):
+# --- FIXED SUMMARIZATION STRATEGIES ---
+def smart_extract_combined_summary(file_contents_data, max_length=150):
     """
-    FAST AI: Single AI call with smart content combination
-    ACTUALLY USES YOUR PEGASUS MODEL
+    SMART EXTRACT: Improved text analysis with proper document separation
     """
     if not file_contents_data:
         return "No content to summarize.", []
     
-    # Prepare content from all documents
-    combined_content = []
+    document_summaries = []
     
     for file_data in file_contents_data:
         content = file_data['content']
-        if content and content.strip():
-            # Extract meaningful content (not just headers)
+        if content.strip():
+            # Extract structured information from each document
             sentences = re.split(r'[.!?]+', content)
             sentences = [s.strip() for s in sentences if s.strip()]
             
-            # Take first 3-5 meaningful sentences from each document
-            meaningful_sentences = []
-            for sentence in sentences:
-                if len(sentence.split()) > 5:  # Only sentences with actual content
-                    meaningful_sentences.append(sentence)
-                if len(meaningful_sentences) >= 5:
-                    break
+            # Smart extraction: title + key points + conclusion
+            key_elements = []
             
-            if meaningful_sentences:
-                doc_content = ". ".join(meaningful_sentences)
-                combined_content.append(doc_content)
+            # Get document title/header (first meaningful sentence)
+            if sentences:
+                key_elements.append(sentences[0])
+            
+            # Get key sentences (sentences with important keywords)
+            important_keywords = ['method', 'result', 'conclusion', 'findings', 
+                                'study', 'research', 'analysis', 'objective', 'purpose']
+            
+            for sentence in sentences[1:4]:  # First few sentences after title
+                if any(keyword in sentence.lower() for keyword in important_keywords):
+                    key_elements.append(sentence)
+            
+            # Get conclusion (last meaningful sentence)
+            if len(sentences) > 1:
+                key_elements.append(sentences[-1])
+            
+            # Create document summary
+            if key_elements:
+                doc_summary = ". ".join(key_elements[:4])  # Limit to 4 key points
+                document_summaries.append({
+                    'name': file_data['name'],
+                    'summary': doc_summary,
+                    'full_content': content
+                })
     
-    if combined_content:
-        # Combine all documents' content
-        final_combined_text = " ".join(combined_content)
+    # Combine document summaries
+    if document_summaries:
+        combined_text = " | ".join([f"Document: {doc['name']}. Key points: {doc['summary']}" 
+                                  for doc in document_summaries])
         
-        # Use your Pegasus model to generate the summary
-        summary = summarize_text(final_combined_text, model, tokenizer, max_length)
-        return summary, combined_content
+        # Truncate to desired length
+        words = combined_text.split()
+        if len(words) > max_length:
+            combined_text = " ".join(words[:max_length]) + "..."
+        
+        return combined_text, document_summaries
     else:
         return "No meaningful content found.", []
 
-def quality_ai_summary(file_contents_data, model, tokenizer, max_length=150):
+def ai_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
-    QUALITY AI: Individual summaries + combined summary
-    USES YOUR PEGASUS MODEL FOR ALL SUMMARIES
+    AI COMBINED: Single AI call with proper context separation
+    """
+    if not file_contents:
+        return "No content to summarize.", []
+    
+    # Prepare structured input for the model
+    structured_input = []
+    
+    for i, content in enumerate(file_contents):
+        if content.strip():
+            sentences = re.split(r'[.!?]+', content)
+            sentences = [s.strip() for s in sentences if s.strip()]
+            
+            # Take first 3 and last 2 sentences from each document
+            key_sentences = sentences[:3] + sentences[-2:] if len(sentences) > 5 else sentences
+            doc_text = ". ".join(key_sentences[:5])  # Limit to 5 sentences per doc
+            
+            structured_input.append(f"Document {i+1}: {doc_text}")
+    
+    if structured_input:
+        # Combine with clear separation
+        combined_text = " ".join(structured_input)
+        final_summary = summarize_text(combined_text, model, tokenizer, max_length)
+        return final_summary, structured_input
+    else:
+        return "No meaningful content found.", []
+
+def full_quality_summary(file_contents_data, model, tokenizer, max_length=150):
+    """
+    FULL QUALITY: Individual summaries + combined summary
     """
     if not file_contents_data:
         return "No content to summarize.", []
     
     individual_summaries = []
     
-    # Generate individual summaries using your model
     for file_data in file_contents_data:
         content = file_data['content']
-        if content and content.strip():
+        if content.strip():
             individual_summary = summarize_text(content, model, tokenizer, max_length//2)
             individual_summaries.append({
                 'name': file_data['name'],
-                'summary': individual_summary,
-                'word_count': count_words(individual_summary)
+                'summary': individual_summary
             })
     
     if individual_summaries:
         # Combine individual summaries
-        combined_summaries_text = " ".join([item['summary'] for item in individual_summaries])
-        
-        # Use your model again to create a final combined summary
+        combined_summaries_text = " ".join([f"{item['name']}: {item['summary']}" 
+                                          for item in individual_summaries])
         final_summary = summarize_text(combined_summaries_text, model, tokenizer, max_length)
         return final_summary, individual_summaries
     else:
@@ -232,7 +248,7 @@ def process_single_file(file):
         else:
             content = file.read().decode("utf-8")
         
-        return clean_text(content) if content else ""
+        return content.strip() if content else ""
     except Exception as e:
         st.warning(f"❌ Error processing {file.name}: {e}")
         return ""
@@ -291,20 +307,27 @@ with tab1:
             if not all_contents:
                 st.warning("Please provide some text or files to summarize.")
             else:
-                # Convert to file_data format
+                # Convert to file_data format for consistency
                 file_data_contents = [{'name': f'Text Document {i+1}', 'content': content} 
                                     for i, content in enumerate(all_contents)]
                 
-                # Use AI modes that actually use your model
-                if processing_mode == "🚀 Fast AI":
-                    with st.spinner("🤖 Generating combined summary with Pegasus model..."):
-                        final_summary, intermediate_data = fast_ai_summary(
-                            file_data_contents, model, tokenizer, summary_length
+                # Choose strategy based on mode
+                if processing_mode == "📊 Smart Extract":
+                    with st.spinner("🔍 Analyzing document structure..."):
+                        final_summary, intermediate_data = smart_extract_combined_summary(
+                            file_data_contents, summary_length
                         )
-                    intermediate_label = "Content Used for Summary"
+                    intermediate_label = "Document Analysis"
+                elif processing_mode == "🤖 AI Combined":
+                    with st.spinner("🤖 Generating AI combined summary..."):
+                        content_only = [item['content'] for item in file_data_contents]
+                        final_summary, intermediate_data = ai_combined_summary(
+                            content_only, model, tokenizer, summary_length
+                        )
+                    intermediate_label = "Structured Input"
                 else:
-                    with st.spinner("🎯 Generating high-quality summaries with Pegasus model..."):
-                        final_summary, intermediate_data = quality_ai_summary(
+                    with st.spinner("🎯 Generating high-quality summary..."):
+                        final_summary, intermediate_data = full_quality_summary(
                             file_data_contents, model, tokenizer, summary_length
                         )
                     intermediate_label = "Individual Summaries"
@@ -315,25 +338,23 @@ with tab1:
                 st.success(f"✅ Combined Summary Generated! (Time: {processing_time:.2f}s)")
                 st.markdown("### 📋 Combined Summary")
                 
-                # Accurate word count
-                word_count = count_words(final_summary)
-                st.caption(f"**Summary length:** {word_count} words | **Combined from:** {len(all_contents)} sources | **Mode:** {processing_mode}")
+                word_count = len(final_summary.split())
+                st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
                 
-                # Clean, formatted output
                 st.info(final_summary)
                 
                 # Show intermediate data
-                if intermediate_data and st.checkbox("Show processing details", key="show_details_1"):
+                if intermediate_data:
                     with st.expander(f"🔍 {intermediate_label}"):
-                        if processing_mode == "🚀 Fast AI":
-                            for i, data in enumerate(intermediate_data):
-                                st.write(f"**Document {i+1} content used:**")
-                                st.text(data[:500] + "..." if len(data) > 500 else data)
+                        if processing_mode == "📊 Smart Extract":
+                            for doc_data in intermediate_data:
+                                st.write(f"**{doc_data['name']}**")
+                                st.text(doc_data['summary'])
                                 st.divider()
                         else:
-                            for item in intermediate_data:
-                                st.write(f"**{item['name']}** ({item['word_count']} words)")
-                                st.text(item['summary'])
+                            for i, data in enumerate(intermediate_data):
+                                st.write(f"**Document {i+1}:**")
+                                st.text(data)
                                 st.divider()
                         
         except Exception as e:
@@ -363,7 +384,7 @@ with tab2:
                 file_contents_data.append({
                     'name': file.name,
                     'content': content,
-                    'word_count': count_words(content)
+                    'word_count': len(content.split())
                 })
         
         with st.expander("📊 File Contents Preview"):
@@ -380,6 +401,7 @@ with tab2:
             key="file_summary_type"
         )
         
+        # FIXED: This checkbox should work for ALL modes
         individual_summary_check = st.checkbox(
             "Also generate individual summaries for uploaded files?", 
             key="individual_check"
@@ -404,16 +426,22 @@ with tab2:
                 if not all_contents:
                     st.warning("No readable content was found.")
                 else:
-                    # Use AI modes that actually use your model
-                    if processing_mode == "🚀 Fast AI":
-                        with st.spinner("🤖 Generating combined summary with Pegasus model..."):
-                            final_summary, intermediate_data = fast_ai_summary(
-                                all_file_data, model, tokenizer, summary_length
+                    # Choose strategy based on mode
+                    if processing_mode == "📊 Smart Extract":
+                        with st.spinner("🔍 Analyzing document structure..."):
+                            final_summary, intermediate_data = smart_extract_combined_summary(
+                                all_file_data, summary_length
                             )
-                        intermediate_label = "Content Used for Summary"
+                        intermediate_label = "Document Analysis"
+                    elif processing_mode == "🤖 AI Combined":
+                        with st.spinner("🤖 Generating AI combined summary..."):
+                            final_summary, intermediate_data = ai_combined_summary(
+                                all_contents, model, tokenizer, summary_length
+                            )
+                        intermediate_label = "Structured Input"
                     else:
-                        with st.spinner("🎯 Generating high-quality summaries with Pegasus model..."):
-                            final_summary, intermediate_data = quality_ai_summary(
+                        with st.spinner("🎯 Generating high-quality summary..."):
+                            final_summary, intermediate_data = full_quality_summary(
                                 all_file_data, model, tokenizer, summary_length
                             )
                         intermediate_label = "Individual Summaries"
@@ -424,34 +452,36 @@ with tab2:
                     st.success(f"✅ Combined Summary Generated! (Time: {processing_time:.2f}s)")
                     st.markdown("### 📋 Combined Summary")
                     
-                    # Accurate word count
-                    word_count = count_words(final_summary)
-                    st.caption(f"**Summary length:** {word_count} words | **Combined from:** {len(all_contents)} sources | **Mode:** {processing_mode}")
+                    word_count = len(final_summary.split())
+                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
                     
-                    # Clean, formatted output
                     st.info(final_summary)
                     
                     # Show intermediate data
-                    if intermediate_data and st.checkbox("Show processing details", key="show_details_2"):
+                    if intermediate_data:
                         with st.expander(f"🔍 {intermediate_label}"):
-                            if processing_mode == "🚀 Fast AI":
-                                for i, data in enumerate(intermediate_data):
-                                    st.write(f"**Document {i+1} content used:**")
-                                    st.text(data[:500] + "..." if len(data) > 500 else data)
+                            if processing_mode == "📊 Smart Extract":
+                                for doc_data in intermediate_data:
+                                    st.write(f"**{doc_data['name']}**")
+                                    st.text(doc_data['summary'])
                                     st.divider()
                             else:
-                                for item in intermediate_data:
-                                    st.write(f"**{item['name']}** ({item['word_count']} words)")
-                                    st.text(item['summary'])
+                                for i, data in enumerate(intermediate_data):
+                                    if isinstance(data, dict):
+                                        st.write(f"**{data['name']}**")
+                                        st.text(data['summary'])
+                                    else:
+                                        st.write(f"**Document {i+1}:**")
+                                        st.text(data)
                                     st.divider()
                     
-                    # Generate individual summaries
+                    # FIXED: Generate individual summaries when checkbox is checked
                     if individual_summary_check:
                         st.divider()
                         st.markdown("### 📄 Individual File Summaries")
                         
                         for file_data in file_contents_data:
-                            with st.spinner(f"🤖 Summarizing {file_data['name']} with Pegasus model..."):
+                            with st.spinner(f"Summarizing {file_data['name']}..."):
                                 individual_summary = summarize_text(
                                     file_data['content'], 
                                     model, 
@@ -466,13 +496,8 @@ with tab2:
             except Exception as e:
                 st.error(f"Error generating summary: {e}")
 
-# --- MODEL INFORMATION ---
+# --- MODEL METRICS ---
 st.divider()
-st.subheader("🤖 Model Information")
-st.write("**Model:** Google Pegasus (fine-tuned on CNN/DailyMail)")
-st.write("**Purpose:** Abstractive text summarization")
-st.write("**Status:** ✅ Loaded and ready for summarization")
-
 st.subheader("📊 Model Performance Metrics")
 
 metrics = {
