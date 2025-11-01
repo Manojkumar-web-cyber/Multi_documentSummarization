@@ -1,9 +1,9 @@
 import streamlit as st
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
-st.set_page_config(page_title="Multi-Document Summarization", layout="wide")
+st.set_page_config(page_title="Multi Documents Summarization", layout="wide")
 
-st.title("🚀 Multi-Document Summarization")
+st.title("🚀 Multi-Documents Summarization")
 st.write("Fine-tuned Pegasus Transformer Model")
 
 @st.cache_resource
