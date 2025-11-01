@@ -8,6 +8,7 @@ streamlit
 textract
 
 pillow
+PyPDF2  # <-- ADD THIS LINE
 pdfminer.six
 python-docx
 python-pptx
