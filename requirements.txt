@@ -5,7 +5,8 @@ sentencepiece>=0.1.99
 protobuf>=3.20.0
 
 streamlit
-unstructured
+textract
+
 pillow
 pdfminer.six
 python-docx

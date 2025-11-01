@@ -1,5 +1,5 @@
 import streamlit as st
-from unstructured.partition.auto import partition
+import textract
 import tempfile
 import os
 
@@ -16,7 +16,7 @@ def get_uploaded_files():
 
 
 def process_uploaded_files(uploaded_files):
-    """Process multiple uploaded files using unstructured"""
+    """Process multiple uploaded files using textract"""
     all_documents = {}
     
     if uploaded_files:
@@ -29,9 +29,8 @@ def process_uploaded_files(uploaded_files):
                     tmp.write(file.getbuffer())
                     tmp_path = tmp.name
                 
-                # Partition file (works for all formats)
-                elements = partition(tmp_path)
-                text = "\n".join([str(el) for el in elements])
+                # Extract text using textract (works for all formats)
+                text = textract.process(tmp_path).decode('utf-8')
                 all_documents[file.name] = text
                 
                 # Clean up temp file
