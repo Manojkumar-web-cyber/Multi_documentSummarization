@@ -3,6 +3,7 @@ from unstructured.partition.auto import partition
 import tempfile
 import os
 
+
 def get_uploaded_files():
     """Upload multiple file types: PDF, DOCX, PPTX, TXT"""
     uploaded_files = st.file_uploader(
@@ -12,6 +13,7 @@ def get_uploaded_files():
         help="Supports PDF, Word documents, PowerPoint presentations, and text files"
     )
     return uploaded_files
+
 
 def process_uploaded_files(uploaded_files):
     """Process multiple uploaded files using unstructured"""
@@ -45,6 +47,7 @@ def process_uploaded_files(uploaded_files):
         st.info("Please upload documents to begin")
         return None
 
+
 def main():
     st.set_page_config(page_title="Multi-Document Summarizer", layout="wide")
     st.title("🔤 Multi-Document Summarizer")
@@ -66,89 +69,6 @@ def main():
                 st.subheader(f"📄 {selected_doc}")
                 st.text_area("Document Content:", documents[selected_doc], height=400)
 
+
 if __name__ == "__main__":
     main()
-            "Summary Type:",
-            ["Combined Summary", "Individual Summaries"],
-            horizontal=True
-        )
-        
-        if documents and st.button("🚀 Generate Summary", key="text_summary"):
-            with st.spinner("Generating summary..."):
-                try:
-                    if summary_type == "Combined Summary":
-                        # Combine all documents
-                        combined_text = "\n\n".join(documents)
-                        summary = summarize_text(combined_text, model, tokenizer)
-                        
-                        st.success("✅ Summary Generated!")
-                        st.markdown("### 📋 Combined Summary")
-                        st.info(summary)
-                        
-                    else:  # Individual Summaries
-                        st.success("✅ Summaries Generated!")
-                        for idx, doc in enumerate(documents, 1):
-                            summary = summarize_text(doc, model, tokenizer)
-                            st.markdown(f"### 📄 Document {idx} Summary")
-                            st.info(summary)
-                            st.divider()
-                            
-                except Exception as e:
-                    st.error(f"Error generating summary: {e}")
-    
-    with tab2:
-        st.write("**Upload text files (.txt) for summarization:**")
-        
-        uploaded_files = st.file_uploader(
-            "Choose files", 
-            type=['txt'], 
-            accept_multiple_files=True
-        )
-        
-        if uploaded_files:
-            st.write(f"**{len(uploaded_files)} file(s) uploaded**")
-            
-            file_summary_type = st.radio(
-                "Summary Type:",
-                ["Combined Summary", "Individual Summaries"],
-                horizontal=True,
-                key="file_summary_type"
-            )
-            
-            if st.button("🚀 Generate Summary", key="file_summary"):
-                with st.spinner("Processing files and generating summary..."):
-                    try:
-                        file_contents = []
-                        for file in uploaded_files:
-                            content = file.read().decode("utf-8")
-                            file_contents.append(content)
-                        
-                        if file_summary_type == "Combined Summary":
-                            combined_text = "\n\n".join(file_contents)
-                            summary = summarize_text(combined_text, model, tokenizer)
-                            
-                            st.success("✅ Summary Generated!")
-                            st.markdown("### 📋 Combined Summary")
-                            st.info(summary)
-                        else:
-                            st.success("✅ Summaries Generated!")
-                            for idx, (file, content) in enumerate(zip(uploaded_files, file_contents), 1):
-                                summary = summarize_text(content, model, tokenizer)
-                                st.markdown(f"### 📄 {file.name}")
-                                st.info(summary)
-                                st.divider()
-                                
-                    except Exception as e:
-                        st.error(f"Error processing files: {e}")
-    
-    # Model metrics
-    st.divider()
-    st.subheader("📊 Model Performance Metrics")
-    
-    metrics = {
-        "Pegasus (CNN/DailyMail)": {"ROUGE-1": 47.65, "ROUGE-2": 18.75, "ROUGE-L": 24.95},
-        "TextRank": {"ROUGE-1": 43.83, "ROUGE-2": 7.97, "ROUGE-L": 34.13},
-        "LSTM-Seq2Seq": {"ROUGE-1": 38.0, "ROUGE-2": 17.0, "ROUGE-L": 32.0}
-    }
-    
-    st.json(metrics)
