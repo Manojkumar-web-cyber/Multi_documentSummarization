@@ -19,6 +19,14 @@ with st.sidebar:
         min_value=50, max_value=500, value=150, step=50,
         help="Adjust the desired length of the summary"
     )
+    
+    # NEW: Performance mode selection
+    processing_mode = st.radio(
+        "Processing Mode:",
+        ["🚀 Fast Mode", "🎯 Quality Mode"],
+        help="Fast Mode: Quick combined summary | Quality Mode: Individual + Combined (slower)"
+    )
+    
     st.info(f"📝 Summary will be ~{summary_length} words")
 
 # --- TEXT EXTRACTION FUNCTIONS ---
@@ -109,33 +117,55 @@ def summarize_text(text, model, tokenizer, max_length=150):
 # Load model
 model, tokenizer = load_model()
 
-# --- NEW STRATEGY: TWO-STEP SUMMARIZATION ---
-def smart_combined_summary(file_contents, model, tokenizer, max_length=150):
+# --- OPTIMIZED SUMMARIZATION STRATEGIES ---
+def fast_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
-    NEW APPROACH: 
-    1. First summarize each document individually
-    2. Then combine those summaries into a final combined summary
-    This ensures ALL documents contribute to the final result
+    FAST MODE: Extract key sentences from each document and combine them
+    This is much faster than full summarization for each document
     """
     if not file_contents:
-        return "No content to summarize."
+        return "No content to summarize.", []
     
-    # Step 1: Generate individual summaries for each document
+    # Extract important sentences from each document (simple heuristic)
+    important_sentences = []
+    
+    for content in file_contents:
+        if content.strip():
+            sentences = content.split('.')
+            # Take first 2 sentences and last 2 sentences from each document
+            important_sentences.extend(sentences[:2])  # Introduction
+            important_sentences.extend(sentences[-2:]) # Conclusion
+    
+    # Combine and summarize
+    combined_text = ". ".join([s.strip() for s in important_sentences if s.strip()])
+    
+    if combined_text:
+        final_summary = summarize_text(combined_text, model, tokenizer, max_length)
+        return final_summary, important_sentences
+    else:
+        return "No meaningful content found.", []
+
+def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
+    """
+    QUALITY MODE: Two-step summarization (slower but better quality)
+    """
+    if not file_contents:
+        return "No content to summarize.", []
+    
     individual_summaries = []
     
     for i, content in enumerate(file_contents):
         if content.strip():
-            with st.spinner(f"Summarizing document {i+1}/{len(file_contents)}..."):
-                individual_summary = summarize_text(content, model, tokenizer, max_length//len(file_contents))
-                individual_summaries.append(individual_summary)
+            # Use shorter length for individual summaries to save time
+            individual_summary = summarize_text(content, model, tokenizer, max_length//2)
+            individual_summaries.append(individual_summary)
     
-    # Step 2: Combine individual summaries into final summary
     if individual_summaries:
         combined_summaries_text = " ".join(individual_summaries)
         final_summary = summarize_text(combined_summaries_text, model, tokenizer, max_length)
         return final_summary, individual_summaries
     else:
-        return "No meaningful content found in documents.", []
+        return "No meaningful content found.", []
 
 # --- SIMPLIFIED FILE PROCESSING ---
 def process_single_file(file):
@@ -212,27 +242,34 @@ with tab1:
                 if not all_contents:
                     st.warning("Please provide some text or files to summarize.")
                 else:
-                    # Use NEW two-step summarization approach
-                    final_summary, individual_summaries = smart_combined_summary(
-                        all_contents, model, tokenizer, summary_length
-                    )
+                    # Choose strategy based on mode
+                    if processing_mode == "🚀 Fast Mode":
+                        final_summary, intermediate_data = fast_combined_summary(
+                            all_contents, model, tokenizer, summary_length
+                        )
+                        intermediate_label = "Key Sentences Used"
+                    else:
+                        final_summary, intermediate_data = quality_combined_summary(
+                            all_contents, model, tokenizer, summary_length
+                        )
+                        intermediate_label = "Intermediate Summaries Used"
                     
                     end_time = time.time()
                     st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                     st.markdown("### 📋 Combined Summary")
                     
                     word_count = len(final_summary.split())
-                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
+                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
                     
                     st.info(final_summary)
                     
-                    # Show intermediate summaries
-                    with st.expander("🔍 Intermediate Summaries Used"):
-                        st.write("**Step 1: Individual document summaries that were combined:**")
-                        for i, summary in enumerate(individual_summaries):
-                            st.write(f"**Document {i+1} Summary:**")
-                            st.text(summary)
-                            st.divider()
+                    # Show intermediate data
+                    if intermediate_data:
+                        with st.expander(f"🔍 {intermediate_label}"):
+                            for i, data in enumerate(intermediate_data):
+                                st.write(f"**Document {i+1}:**")
+                                st.text(data)
+                                st.divider()
                         
             except Exception as e:
                 st.error(f"Error generating summary: {e}")
@@ -300,29 +337,36 @@ with tab2:
                     if not all_contents:
                         st.warning("No readable content was found.")
                     else:
-                        # Use NEW two-step summarization approach
-                        final_summary, individual_summaries = smart_combined_summary(
-                            all_contents, model, tokenizer, summary_length
-                        )
+                        # Choose strategy based on mode
+                        if processing_mode == "🚀 Fast Mode":
+                            final_summary, intermediate_data = fast_combined_summary(
+                                all_contents, model, tokenizer, summary_length
+                            )
+                            intermediate_label = "Key Sentences Used"
+                        else:
+                            final_summary, intermediate_data = quality_combined_summary(
+                                all_contents, model, tokenizer, summary_length
+                            )
+                            intermediate_label = "Intermediate Summaries Used"
                         
                         end_time = time.time()
                         st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                         st.markdown("### 📋 Combined Summary")
                         
                         word_count = len(final_summary.split())
-                        st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
+                        st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
                         
                         st.info(final_summary)
                         
-                        # Show intermediate summaries
-                        with st.expander("🔍 Intermediate Summaries Used"):
-                            st.write("**Step 1: Individual document summaries that were combined:**")
-                            for i, summary in enumerate(individual_summaries):
-                                st.write(f"**Document {i+1} Summary:**")
-                                st.text(summary)
-                                st.divider()
+                        # Show intermediate data
+                        if intermediate_data:
+                            with st.expander(f"🔍 {intermediate_label}"):
+                                for i, data in enumerate(intermediate_data):
+                                    st.write(f"**Document {i+1}:**")
+                                    st.text(data)
+                                    st.divider()
                         
-                        # Individual summaries (original approach)
+                        # Individual summaries
                         if individual_summary_check:
                             st.divider()
                             st.markdown("### 📄 Individual File Summaries")
