@@ -5,7 +5,6 @@ from PyPDF2 import PdfReader
 from pptx import Presentation
 from docx import Document
 import time
-import hashlib
 
 st.set_page_config(page_title="Multi-Document Summarization", layout="wide")
 
@@ -110,65 +109,31 @@ def summarize_text(text, model, tokenizer, max_length=150):
 # Load model
 model, tokenizer = load_model()
 
-# --- FIXED FILE PROCESSING ---
+# --- SIMPLIFIED FILE PROCESSING ---
 def get_file_content(file):
-    """Extract content from a single file with proper handling"""
+    """Extract content from a single file"""
     try:
-        # Reset and read file content
         file.seek(0)
-        file_content = file.read()
         
-        # Create new file-like object
-        file_obj = io.BytesIO(file_content)
-        file_obj.name = file.name
-        
-        # Extract based on file type
         if file.name.lower().endswith('.pdf'):
-            content = extract_text_from_pdf(file_obj)
+            content = extract_text_from_pdf(file)
         elif file.name.lower().endswith('.pptx'):
-            content = extract_text_from_pptx(file_obj)
+            content = extract_text_from_pptx(file)
         elif file.name.lower().endswith('.docx'):
-            content = extract_text_from_docx(file_obj)
+            content = extract_text_from_docx(file)
         else:
-            content = file_content.decode("utf-8")
+            content = file.read().decode("utf-8")
         
         return content.strip() if content else ""
-        
     except Exception as e:
         st.warning(f"❌ Error processing {file.name}: {e}")
         return ""
 
-def get_all_contents(uploaded_files, text_documents):
-    """Get all contents from files and text inputs"""
-    all_contents = []
-    
-    # Process uploaded files
-    if uploaded_files:
-        for file in uploaded_files:
-            content = get_file_content(file)
-            if content:
-                all_contents.append({
-                    'name': file.name,
-                    'content': content,
-                    'type': 'file'
-                })
-    
-    # Process text documents
-    for i, text in enumerate(text_documents):
-        if text and text.strip():
-            all_contents.append({
-                'name': f'Text Document {i+1}',
-                'content': text.strip(),
-                'type': 'text'
-            })
-    
-    return all_contents
-
 # --- STREAMLIT UI ---
 if 'text_documents' not in st.session_state:
-    st.session_state.text_documents = [""]  # Start with one empty document
-if 'num_docs' not in st.session_state:
-    st.session_state.num_docs = 1
+    st.session_state.text_documents = [""]
+if 'uploaded_files' not in st.session_state:
+    st.session_state.uploaded_files = []
 
 # Tabs for different input methods
 tab1, tab2 = st.tabs(["📝 Multiple Text Inputs", "📄 File Upload"])
@@ -181,25 +146,19 @@ with tab1:
     with col1:
         if st.button("➕ Add Document", key="add_doc_text"):
             st.session_state.text_documents.append("")
-            st.session_state.num_docs += 1
     with col2:
-        if st.button("➖ Remove Document", key="remove_doc_text") and st.session_state.num_docs > 1:
+        if st.button("➖ Remove Document", key="remove_doc_text") and len(st.session_state.text_documents) > 1:
             st.session_state.text_documents.pop()
-            st.session_state.num_docs -= 1
     
     # Text inputs
-    current_text_documents = []
-    for i in range(st.session_state.num_docs):
-        doc = st.text_area(
+    for i in range(len(st.session_state.text_documents)):
+        st.session_state.text_documents[i] = st.text_area(
             f"Document {i+1}:", 
             height=150, 
             key=f"doc_input_{i}",
             placeholder=f"Paste document {i+1} here...",
-            value=st.session_state.text_documents[i] if i < len(st.session_state.text_documents) else ""
+            value=st.session_state.text_documents[i]
         )
-        current_text_documents.append(doc)
-    
-    st.session_state.text_documents = current_text_documents
 
     summary_type_text = st.radio(
         "Summary Scope:",
@@ -212,28 +171,36 @@ with tab1:
         with st.spinner("Generating summary..."):
             start_time = time.time()
             try:
-                # Get all contents based on selection
-                if summary_type_text == "Current Tab (Text Inputs Only)":
-                    contents = get_all_contents([], st.session_state.text_documents)
-                else:
-                    contents = get_all_contents(
-                        st.session_state.get('uploaded_files', []), 
-                        st.session_state.text_documents
-                    )
+                # Get text contents
+                text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
                 
-                if not contents:
+                # Get file contents if needed
+                file_contents = []
+                if summary_type_text == "Combined Tab Data (Text Inputs + Uploaded Files)":
+                    for file in st.session_state.uploaded_files:
+                        content = get_file_content(file)
+                        if content:
+                            file_contents.append(content)
+                
+                all_contents = text_contents + file_contents
+                
+                if not all_contents:
                     st.warning("Please provide some text or files to summarize.")
                 else:
-                    # Combine all contents for summary
-                    combined_text = "\n\n".join([item['content'] for item in contents])
-                    
                     # DEBUG: Show what's being summarized
-                    with st.expander("🔍 Debug: Contents Being Summarized"):
-                        st.write(f"**Number of documents:** {len(contents)}")
-                        for item in contents:
-                            st.write(f"**{item['name']}** ({item['type']}) - {len(item['content'].split())} words")
-                            st.text(item['content'][:200] + "..." if len(item['content']) > 200 else item['content'])
+                    with st.expander("🔍 DEBUG: Contents Being Summarized"):
+                        st.write(f"**Total documents to combine:** {len(all_contents)}")
+                        st.write("**Text Documents:**", len(text_contents))
+                        st.write("**File Documents:**", len(file_contents))
+                        
+                        for i, content in enumerate(all_contents):
+                            st.write(f"**Document {i+1}** - {len(content.split())} words")
+                            preview = content[:300] + "..." if len(content) > 300 else content
+                            st.text(preview)
+                            st.divider()
                     
+                    # Combine and summarize
+                    combined_text = "\n\n".join(all_contents)
                     summary = summarize_text(combined_text, model, tokenizer, max_length=summary_length)
                     
                     end_time = time.time()
@@ -241,7 +208,7 @@ with tab1:
                     st.markdown("### 📋 Combined Summary")
                     
                     word_count = len(summary.split())
-                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(contents)} sources")
+                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
                     
                     st.info(summary)
                         
@@ -262,18 +229,20 @@ with tab2:
     if uploaded_files is not None:
         st.session_state.uploaded_files = uploaded_files
     
-    if st.session_state.get('uploaded_files'):
+    if st.session_state.uploaded_files:
         st.write(f"**📁 {len(st.session_state.uploaded_files)} file(s) uploaded**")
         
         # Show file preview
-        file_contents = get_all_contents(st.session_state.uploaded_files, [])
-        if file_contents:
-            with st.expander("📊 File Contents Preview"):
-                for item in file_contents:
-                    st.write(f"**{item['name']}** ({len(item['content'].split())} words)")
-                    preview = item['content'][:200] + "..." if len(item['content']) > 200 else item['content']
+        with st.expander("📊 File Contents Preview"):
+            for i, file in enumerate(st.session_state.uploaded_files):
+                content = get_file_content(file)
+                if content:
+                    st.write(f"**{file.name}** - {len(content.split())} words")
+                    preview = content[:300] + "..." if len(content) > 300 else content
                     st.text(preview)
-                    st.divider()
+                else:
+                    st.write(f"**{file.name}** - No readable content")
+                st.divider()
         
         file_summary_type = st.radio(
             "Summary Scope:",
@@ -291,27 +260,37 @@ with tab2:
             with st.spinner("Processing files and generating summary..."):
                 start_time = time.time()
                 try:
-                    # Get all contents based on selection
-                    if file_summary_type == "Current Tab (Uploaded Files Only)":
-                        contents = get_all_contents(st.session_state.uploaded_files, [])
-                    else:
-                        contents = get_all_contents(
-                            st.session_state.uploaded_files, 
-                            st.session_state.text_documents
-                        )
+                    # Get file contents
+                    file_contents = []
+                    for file in st.session_state.uploaded_files:
+                        content = get_file_content(file)
+                        if content:
+                            file_contents.append(content)
+                    
+                    # Get text contents if needed
+                    text_contents = []
+                    if file_summary_type == "Combined Tab Data (Uploaded Files + Text Inputs)":
+                        text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
+                    
+                    all_contents = file_contents + text_contents
 
-                    if not contents:
+                    if not all_contents:
                         st.warning("No readable content was found.")
                     else:
                         # DEBUG: Show what's being summarized
-                        with st.expander("🔍 Debug: Contents Being Summarized"):
-                            st.write(f"**Number of documents:** {len(contents)}")
-                            for item in contents:
-                                st.write(f"**{item['name']}** ({item['type']}) - {len(item['content'].split())} words")
-                                st.text(item['content'][:200] + "..." if len(item['content']) > 200 else item['content'])
+                        with st.expander("🔍 DEBUG: Contents Being Summarized"):
+                            st.write(f"**Total documents to combine:** {len(all_contents)}")
+                            st.write("**File Documents:**", len(file_contents))
+                            st.write("**Text Documents:**", len(text_contents))
+                            
+                            for i, content in enumerate(all_contents):
+                                st.write(f"**Document {i+1}** - {len(content.split())} words")
+                                preview = content[:300] + "..." if len(content) > 300 else content
+                                st.text(preview)
+                                st.divider()
                         
                         # Generate combined summary
-                        combined_text = "\n\n".join([item['content'] for item in contents])
+                        combined_text = "\n\n".join(all_contents)
                         summary = summarize_text(combined_text, model, tokenizer, max_length=summary_length)
                         
                         end_time = time.time()
@@ -319,7 +298,7 @@ with tab2:
                         st.markdown("### 📋 Combined Summary")
                         
                         word_count = len(summary.split())
-                        st.caption(f"Summary length: ~{word_count} words | Combined from {len(contents)} sources")
+                        st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
                         
                         st.info(summary)
                         
@@ -328,19 +307,20 @@ with tab2:
                             st.divider()
                             st.markdown("### 📄 Individual File Summaries")
                             
-                            file_items = [item for item in contents if item['type'] == 'file']
-                            for item in file_items:
-                                with st.spinner(f"Summarizing {item['name']}..."):
-                                    individual_summary = summarize_text(
-                                        item['content'], 
-                                        model, 
-                                        tokenizer, 
-                                        max_length=summary_length
-                                    )
-                                
-                                st.markdown(f"**{item['name']}** ({len(item['content'].split())} words)")
-                                st.info(individual_summary)
-                                st.divider()
+                            for i, file in enumerate(st.session_state.uploaded_files):
+                                content = get_file_content(file)
+                                if content:
+                                    with st.spinner(f"Summarizing {file.name}..."):
+                                        individual_summary = summarize_text(
+                                            content, 
+                                            model, 
+                                            tokenizer, 
+                                            max_length=summary_length
+                                        )
+                                    
+                                    st.markdown(f"**{file.name}** ({len(content.split())} words)")
+                                    st.info(individual_summary)
+                                    st.divider()
                                 
                 except Exception as e:
                     st.error(f"Error generating summary: {e}")
