@@ -109,11 +109,38 @@ def summarize_text(text, model, tokenizer, max_length=150):
 # Load model
 model, tokenizer = load_model()
 
-# --- FIXED FILE PROCESSING ---
+# --- NEW STRATEGY: TWO-STEP SUMMARIZATION ---
+def smart_combined_summary(file_contents, model, tokenizer, max_length=150):
+    """
+    NEW APPROACH: 
+    1. First summarize each document individually
+    2. Then combine those summaries into a final combined summary
+    This ensures ALL documents contribute to the final result
+    """
+    if not file_contents:
+        return "No content to summarize."
+    
+    # Step 1: Generate individual summaries for each document
+    individual_summaries = []
+    
+    for i, content in enumerate(file_contents):
+        if content.strip():
+            with st.spinner(f"Summarizing document {i+1}/{len(file_contents)}..."):
+                individual_summary = summarize_text(content, model, tokenizer, max_length//len(file_contents))
+                individual_summaries.append(individual_summary)
+    
+    # Step 2: Combine individual summaries into final summary
+    if individual_summaries:
+        combined_summaries_text = " ".join(individual_summaries)
+        final_summary = summarize_text(combined_summaries_text, model, tokenizer, max_length)
+        return final_summary, individual_summaries
+    else:
+        return "No meaningful content found in documents.", []
+
+# --- SIMPLIFIED FILE PROCESSING ---
 def process_single_file(file):
-    """Process a single file and return its content"""
+    """Extract content from a single file"""
     try:
-        # Reset file pointer
         file.seek(0)
         
         if file.name.lower().endswith('.pdf'):
@@ -135,16 +162,12 @@ if 'text_documents' not in st.session_state:
     st.session_state.text_documents = [""]
 if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = []
-if 'file_contents' not in st.session_state:
-    st.session_state.file_contents = {}
 
-# Tabs for different input methods
 tab1, tab2 = st.tabs(["📝 Multiple Text Inputs", "📄 File Upload"])
 
 with tab1:
     st.write("**Enter multiple documents below (one per box):**")
     
-    # Add/Remove document buttons
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("➕ Add Document", key="add_doc_text"):
@@ -153,7 +176,6 @@ with tab1:
         if st.button("➖ Remove Document", key="remove_doc_text") and len(st.session_state.text_documents) > 1:
             st.session_state.text_documents.pop()
     
-    # Text inputs
     for i in range(len(st.session_state.text_documents)):
         st.session_state.text_documents[i] = st.text_area(
             f"Document {i+1}:", 
@@ -178,55 +200,39 @@ with tab1:
                 text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
                 
                 # Get file contents if needed
-                file_contents_list = []
+                file_contents = []
                 if summary_type_text == "Combined Tab Data (Text Inputs + Uploaded Files)" and st.session_state.uploaded_files:
                     for file in st.session_state.uploaded_files:
                         content = process_single_file(file)
                         if content:
-                            file_contents_list.append(content)
+                            file_contents.append(content)
                 
-                # COMBINE ALL CONTENTS
-                all_contents = text_contents + file_contents_list
+                all_contents = text_contents + file_contents
                 
                 if not all_contents:
                     st.warning("Please provide some text or files to summarize.")
                 else:
-                    # DEBUG: Show EXACT content being combined
-                    with st.expander("🔍 DEBUG: Contents Being Combined"):
-                        st.write(f"**Total documents to combine:** {len(all_contents)}")
-                        
-                        # Show text documents
-                        for i, content in enumerate(text_contents):
-                            st.write(f"**Text Document {i+1}** - {len(content.split())} words")
-                            preview = content[:500] + "..." if len(content) > 500 else content
-                            st.text(preview)
-                            st.divider()
-                        
-                        # Show file documents  
-                        for i, content in enumerate(file_contents_list):
-                            st.write(f"**File Document {i+1}** - {len(content.split())} words")
-                            preview = content[:500] + "..." if len(content) > 500 else content
-                            st.text(preview)
-                            st.divider()
-                    
-                    # CRITICAL FIX: Combine ALL content properly
-                    combined_text = " ".join(all_contents)  # Using space instead of newlines for better continuity
-                    
-                    # Show combined text preview
-                    with st.expander("🔍 DEBUG: Combined Text Preview"):
-                        st.write(f"Combined text length: {len(combined_text)} characters, {len(combined_text.split())} words")
-                        st.text(combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text)
-                    
-                    summary = summarize_text(combined_text, model, tokenizer, max_length=summary_length)
+                    # Use NEW two-step summarization approach
+                    final_summary, individual_summaries = smart_combined_summary(
+                        all_contents, model, tokenizer, summary_length
+                    )
                     
                     end_time = time.time()
                     st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                     st.markdown("### 📋 Combined Summary")
                     
-                    word_count = len(summary.split())
+                    word_count = len(final_summary.split())
                     st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
                     
-                    st.info(summary)
+                    st.info(final_summary)
+                    
+                    # Show intermediate summaries
+                    with st.expander("🔍 Intermediate Summaries Used"):
+                        st.write("**Step 1: Individual document summaries that were combined:**")
+                        for i, summary in enumerate(individual_summaries):
+                            st.write(f"**Document {i+1} Summary:**")
+                            st.text(summary)
+                            st.divider()
                         
             except Exception as e:
                 st.error(f"Error generating summary: {e}")
@@ -241,14 +247,13 @@ with tab2:
         key="file_uploader"
     )
 
-    # Store in session state
     if uploaded_files is not None:
         st.session_state.uploaded_files = uploaded_files
     
     if st.session_state.uploaded_files:
         st.write(f"**📁 {len(st.session_state.uploaded_files)} file(s) uploaded**")
         
-        # Process and cache file contents
+        # Process files and show preview
         file_contents_data = []
         for file in st.session_state.uploaded_files:
             content = process_single_file(file)
@@ -259,7 +264,6 @@ with tab2:
                     'word_count': len(content.split())
                 })
         
-        # Show file preview
         with st.expander("📊 File Contents Preview"):
             for file_data in file_contents_data:
                 st.write(f"**{file_data['name']}** - {file_data['word_count']} words")
@@ -291,51 +295,34 @@ with tab2:
                     if file_summary_type == "Combined Tab Data (Uploaded Files + Text Inputs)":
                         text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
                     
-                    # COMBINE ALL CONTENTS
                     all_contents = file_contents_list + text_contents
 
                     if not all_contents:
                         st.warning("No readable content was found.")
                     else:
-                        # DEBUG: Show EXACT content being combined
-                        with st.expander("🔍 DEBUG: Contents Being Combined"):
-                            st.write(f"**Total documents to combine:** {len(all_contents)}")
-                            
-                            # Show file documents
-                            for i, file_data in enumerate(file_contents_data):
-                                st.write(f"**{file_data['name']}** - {file_data['word_count']} words")
-                                preview = file_data['content'][:500] + "..." if len(file_data['content']) > 500 else file_data['content']
-                                st.text(preview)
-                                st.divider()
-                            
-                            # Show text documents
-                            for i, content in enumerate(text_contents):
-                                st.write(f"**Text Document {i+1}** - {len(content.split())} words")
-                                preview = content[:500] + "..." if len(content) > 500 else content
-                                st.text(preview)
-                                st.divider()
-                        
-                        # CRITICAL FIX: Combine ALL content properly
-                        combined_text = " ".join(all_contents)
-                        
-                        # Show combined text preview
-                        with st.expander("🔍 DEBUG: Combined Text Preview"):
-                            st.write(f"Combined text length: {len(combined_text)} characters, {len(combined_text.split())} words")
-                            st.text(combined_text[:1000] + "..." if len(combined_text) > 1000 else combined_text)
-                        
-                        # Generate combined summary
-                        summary = summarize_text(combined_text, model, tokenizer, max_length=summary_length)
+                        # Use NEW two-step summarization approach
+                        final_summary, individual_summaries = smart_combined_summary(
+                            all_contents, model, tokenizer, summary_length
+                        )
                         
                         end_time = time.time()
                         st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                         st.markdown("### 📋 Combined Summary")
                         
-                        word_count = len(summary.split())
+                        word_count = len(final_summary.split())
                         st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources")
                         
-                        st.info(summary)
+                        st.info(final_summary)
                         
-                        # Individual summaries
+                        # Show intermediate summaries
+                        with st.expander("🔍 Intermediate Summaries Used"):
+                            st.write("**Step 1: Individual document summaries that were combined:**")
+                            for i, summary in enumerate(individual_summaries):
+                                st.write(f"**Document {i+1} Summary:**")
+                                st.text(summary)
+                                st.divider()
+                        
+                        # Individual summaries (original approach)
                         if individual_summary_check:
                             st.divider()
                             st.markdown("### 📄 Individual File Summaries")
