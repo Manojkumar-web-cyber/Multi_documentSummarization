@@ -6,7 +6,6 @@ from pptx import Presentation
 from docx import Document
 import time
 import re
-from collections import Counter
 
 st.set_page_config(page_title="Multi-Document Summarization", layout="wide")
 
@@ -18,15 +17,15 @@ with st.sidebar:
     st.header("⚙️ Summary Settings")
     summary_length = st.slider(
         "Summary Length (words approx.)",
-        min_value=50, max_value=1000, value=150, step=50,
+        min_value=50, max_value=500, value=150, step=50,
         help="Adjust the desired length of the summary"
     )
     
-    # UPDATED: Ultra-fast mode
+    # FIXED: Better mode descriptions
     processing_mode = st.radio(
         "Processing Mode:",
-        ["⚡ Ultra-Fast Mode", "🚀 Fast Mode", "🎯 Quality Mode"],
-        help="Ultra-Fast: Smart extraction | Fast: Key sentences | Quality: Individual + Combined"
+        ["📊 Smart Extract", "🤖 AI Combined", "🎯 Full Quality"],
+        help="Smart Extract: Fast text analysis | AI Combined: Single AI call | Full Quality: Individual + Combined"
     )
     
     st.info(f"📝 Summary will be ~{summary_length} words")
@@ -119,104 +118,116 @@ def summarize_text(text, model, tokenizer, max_length=150):
 # Load model
 model, tokenizer = load_model()
 
-# --- ULTRA-FAST SUMMARIZATION STRATEGIES ---
-def ultra_fast_combined_summary(file_contents, max_length=150):
+# --- FIXED SUMMARIZATION STRATEGIES ---
+def smart_extract_combined_summary(file_contents_data, max_length=150):
     """
-    ULTRA-FAST MODE: No model calls! Uses smart text extraction and merging
+    SMART EXTRACT: Improved text analysis with proper document separation
     """
-    if not file_contents:
+    if not file_contents_data:
         return "No content to summarize.", []
     
-    # Extract key information from each document
-    key_phrases = []
+    document_summaries = []
     
-    for content in file_contents:
+    for file_data in file_contents_data:
+        content = file_data['content']
         if content.strip():
-            # Method 1: Extract sentences with important keywords
+            # Extract structured information from each document
             sentences = re.split(r'[.!?]+', content)
+            sentences = [s.strip() for s in sentences if s.strip()]
             
-            # Find sentences with important words (title-like words)
-            important_words = ['study', 'research', 'analysis', 'method', 'result', 'conclusion', 
-                             'objective', 'purpose', 'findings', 'summary', 'introduction']
+            # Smart extraction: title + key points + conclusion
+            key_elements = []
             
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if any(word in sentence.lower() for word in important_words) and len(sentence) > 20:
-                    key_phrases.append(sentence)
+            # Get document title/header (first meaningful sentence)
+            if sentences:
+                key_elements.append(sentences[0])
             
-            # Method 2: Extract first few sentences (usually introduction)
-            if len(sentences) > 3:
-                key_phrases.extend(sentences[:3])
+            # Get key sentences (sentences with important keywords)
+            important_keywords = ['method', 'result', 'conclusion', 'findings', 
+                                'study', 'research', 'analysis', 'objective', 'purpose']
             
-            # Method 3: Extract last few sentences (usually conclusion)
-            if len(sentences) > 3:
-                key_phrases.extend(sentences[-3:])
+            for sentence in sentences[1:4]:  # First few sentences after title
+                if any(keyword in sentence.lower() for keyword in important_keywords):
+                    key_elements.append(sentence)
+            
+            # Get conclusion (last meaningful sentence)
+            if len(sentences) > 1:
+                key_elements.append(sentences[-1])
+            
+            # Create document summary
+            if key_elements:
+                doc_summary = ". ".join(key_elements[:4])  # Limit to 4 key points
+                document_summaries.append({
+                    'name': file_data['name'],
+                    'summary': doc_summary,
+                    'full_content': content
+                })
     
-    # Remove duplicates and clean up
-    unique_phrases = list(set([p.strip() for p in key_phrases if p.strip()]))
-    
-    # Smart merging: Take most relevant phrases
-    if unique_phrases:
-        # Simple heuristic: take phrases that mention the main topics
-        combined_summary = ". ".join(unique_phrases[:8])  # Limit to 8 key phrases
+    # Combine document summaries
+    if document_summaries:
+        combined_text = " | ".join([f"Document: {doc['name']}. Key points: {doc['summary']}" 
+                                  for doc in document_summaries])
         
         # Truncate to desired length
-        words = combined_summary.split()
+        words = combined_text.split()
         if len(words) > max_length:
-            combined_summary = " ".join(words[:max_length]) + "..."
+            combined_text = " ".join(words[:max_length]) + "..."
         
-        return combined_summary, unique_phrases
+        return combined_text, document_summaries
     else:
         return "No meaningful content found.", []
 
-def extract_key_sentences(content, num_sentences=4):
-    """Extract most important sentences using simple heuristics"""
-    sentences = re.split(r'[.!?]+', content)
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    if len(sentences) <= num_sentences:
-        return sentences
-    
-    # Take first 2 and last 2 sentences (introduction + conclusion)
-    selected = sentences[:2] + sentences[-2:]
-    return selected
-
-def fast_combined_summary(file_contents, model, tokenizer, max_length=150):
-    """FAST MODE: Minimal model calls"""
+def ai_combined_summary(file_contents, model, tokenizer, max_length=150):
+    """
+    AI COMBINED: Single AI call with proper context separation
+    """
     if not file_contents:
         return "No content to summarize.", []
     
-    # Extract key sentences from each document
-    all_key_sentences = []
+    # Prepare structured input for the model
+    structured_input = []
     
-    for content in file_contents:
+    for i, content in enumerate(file_contents):
         if content.strip():
-            key_sentences = extract_key_sentences(content)
-            all_key_sentences.extend(key_sentences)
+            sentences = re.split(r'[.!?]+', content)
+            sentences = [s.strip() for s in sentences if s.strip()]
+            
+            # Take first 3 and last 2 sentences from each document
+            key_sentences = sentences[:3] + sentences[-2:] if len(sentences) > 5 else sentences
+            doc_text = ". ".join(key_sentences[:5])  # Limit to 5 sentences per doc
+            
+            structured_input.append(f"Document {i+1}: {doc_text}")
     
-    # Combine and summarize in ONE model call
-    combined_text = ". ".join([s for s in all_key_sentences if s])
-    
-    if combined_text:
+    if structured_input:
+        # Combine with clear separation
+        combined_text = " ".join(structured_input)
         final_summary = summarize_text(combined_text, model, tokenizer, max_length)
-        return final_summary, all_key_sentences
+        return final_summary, structured_input
     else:
         return "No meaningful content found.", []
 
-def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
-    """QUALITY MODE: Two-step summarization"""
-    if not file_contents:
+def full_quality_summary(file_contents_data, model, tokenizer, max_length=150):
+    """
+    FULL QUALITY: Individual summaries + combined summary
+    """
+    if not file_contents_data:
         return "No content to summarize.", []
     
     individual_summaries = []
     
-    for i, content in enumerate(file_contents):
+    for file_data in file_contents_data:
+        content = file_data['content']
         if content.strip():
             individual_summary = summarize_text(content, model, tokenizer, max_length//2)
-            individual_summaries.append(individual_summary)
+            individual_summaries.append({
+                'name': file_data['name'],
+                'summary': individual_summary
+            })
     
     if individual_summaries:
-        combined_summaries_text = " ".join(individual_summaries)
+        # Combine individual summaries
+        combined_summaries_text = " ".join([f"{item['name']}: {item['summary']}" 
+                                          for item in individual_summaries])
         final_summary = summarize_text(combined_summaries_text, model, tokenizer, max_length)
         return final_summary, individual_summaries
     else:
@@ -296,25 +307,30 @@ with tab1:
             if not all_contents:
                 st.warning("Please provide some text or files to summarize.")
             else:
-                # Show processing message based on mode
-                if processing_mode == "⚡ Ultra-Fast Mode":
-                    with st.spinner("🔄 Extracting key information from documents..."):
-                        final_summary, intermediate_data = ultra_fast_combined_summary(
-                            all_contents, summary_length
+                # Convert to file_data format for consistency
+                file_data_contents = [{'name': f'Text Document {i+1}', 'content': content} 
+                                    for i, content in enumerate(all_contents)]
+                
+                # Choose strategy based on mode
+                if processing_mode == "📊 Smart Extract":
+                    with st.spinner("🔍 Analyzing document structure..."):
+                        final_summary, intermediate_data = smart_extract_combined_summary(
+                            file_data_contents, summary_length
                         )
-                    intermediate_label = "Key Phrases Used"
-                elif processing_mode == "🚀 Fast Mode":
-                    with st.spinner("🔄 Generating fast summary..."):
-                        final_summary, intermediate_data = fast_combined_summary(
-                            all_contents, model, tokenizer, summary_length
+                    intermediate_label = "Document Analysis"
+                elif processing_mode == "🤖 AI Combined":
+                    with st.spinner("🤖 Generating AI combined summary..."):
+                        content_only = [item['content'] for item in file_data_contents]
+                        final_summary, intermediate_data = ai_combined_summary(
+                            content_only, model, tokenizer, summary_length
                         )
-                    intermediate_label = "Key Sentences Used"
+                    intermediate_label = "Structured Input"
                 else:
-                    with st.spinner("🔄 Generating quality summary (this may take a while)..."):
-                        final_summary, intermediate_data = quality_combined_summary(
-                            all_contents, model, tokenizer, summary_length
+                    with st.spinner("🎯 Generating high-quality summary..."):
+                        final_summary, intermediate_data = full_quality_summary(
+                            file_data_contents, model, tokenizer, summary_length
                         )
-                    intermediate_label = "Intermediate Summaries Used"
+                    intermediate_label = "Individual Summaries"
                 
                 end_time = time.time()
                 processing_time = end_time - start_time
@@ -330,10 +346,16 @@ with tab1:
                 # Show intermediate data
                 if intermediate_data:
                     with st.expander(f"🔍 {intermediate_label}"):
-                        for i, data in enumerate(intermediate_data):
-                            st.write(f"**Document {i+1}:**")
-                            st.text(data)
-                            st.divider()
+                        if processing_mode == "📊 Smart Extract":
+                            for doc_data in intermediate_data:
+                                st.write(f"**{doc_data['name']}**")
+                                st.text(doc_data['summary'])
+                                st.divider()
+                        else:
+                            for i, data in enumerate(intermediate_data):
+                                st.write(f"**Document {i+1}:**")
+                                st.text(data)
+                                st.divider()
                         
         except Exception as e:
             st.error(f"Error generating summary: {e}")
@@ -379,6 +401,7 @@ with tab2:
             key="file_summary_type"
         )
         
+        # FIXED: This checkbox should work for ALL modes
         individual_summary_check = st.checkbox(
             "Also generate individual summaries for uploaded files?", 
             key="individual_check"
@@ -395,30 +418,33 @@ with tab2:
                 if file_summary_type == "Combined Tab Data (Uploaded Files + Text Inputs)":
                     text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
                 
+                # Combine all contents
                 all_contents = file_contents_list + text_contents
+                all_file_data = file_contents_data + [{'name': f'Text Document {i+1}', 'content': content} 
+                                                    for i, content in enumerate(text_contents)]
 
                 if not all_contents:
                     st.warning("No readable content was found.")
                 else:
                     # Choose strategy based on mode
-                    if processing_mode == "⚡ Ultra-Fast Mode":
-                        with st.spinner("🔄 Extracting key information from documents..."):
-                            final_summary, intermediate_data = ultra_fast_combined_summary(
-                                all_contents, summary_length
+                    if processing_mode == "📊 Smart Extract":
+                        with st.spinner("🔍 Analyzing document structure..."):
+                            final_summary, intermediate_data = smart_extract_combined_summary(
+                                all_file_data, summary_length
                             )
-                        intermediate_label = "Key Phrases Used"
-                    elif processing_mode == "🚀 Fast Mode":
-                        with st.spinner("🔄 Generating fast summary..."):
-                            final_summary, intermediate_data = fast_combined_summary(
+                        intermediate_label = "Document Analysis"
+                    elif processing_mode == "🤖 AI Combined":
+                        with st.spinner("🤖 Generating AI combined summary..."):
+                            final_summary, intermediate_data = ai_combined_summary(
                                 all_contents, model, tokenizer, summary_length
                             )
-                        intermediate_label = "Key Sentences Used"
+                        intermediate_label = "Structured Input"
                     else:
-                        with st.spinner("🔄 Generating quality summary (this may take a while)..."):
-                            final_summary, intermediate_data = quality_combined_summary(
-                                all_contents, model, tokenizer, summary_length
+                        with st.spinner("🎯 Generating high-quality summary..."):
+                            final_summary, intermediate_data = full_quality_summary(
+                                all_file_data, model, tokenizer, summary_length
                             )
-                        intermediate_label = "Intermediate Summaries Used"
+                        intermediate_label = "Individual Summaries"
                     
                     end_time = time.time()
                     processing_time = end_time - start_time
@@ -434,13 +460,23 @@ with tab2:
                     # Show intermediate data
                     if intermediate_data:
                         with st.expander(f"🔍 {intermediate_label}"):
-                            for i, data in enumerate(intermediate_data):
-                                st.write(f"**Document {i+1}:**")
-                                st.text(data)
-                                st.divider()
+                            if processing_mode == "📊 Smart Extract":
+                                for doc_data in intermediate_data:
+                                    st.write(f"**{doc_data['name']}**")
+                                    st.text(doc_data['summary'])
+                                    st.divider()
+                            else:
+                                for i, data in enumerate(intermediate_data):
+                                    if isinstance(data, dict):
+                                        st.write(f"**{data['name']}**")
+                                        st.text(data['summary'])
+                                    else:
+                                        st.write(f"**Document {i+1}:**")
+                                        st.text(data)
+                                    st.divider()
                     
-                    # Individual summaries (only for quality/fast modes)
-                    if individual_summary_check and processing_mode != "⚡ Ultra-Fast Mode":
+                    # FIXED: Generate individual summaries when checkbox is checked
+                    if individual_summary_check:
                         st.divider()
                         st.markdown("### 📄 Individual File Summaries")
                         
