@@ -30,6 +30,41 @@ with st.sidebar:
     
     st.info(f"📝 Summary will be ~{summary_length} words")
 
+def clean_and_validate_summary(text):
+    """Clean hallucinated content and invalid URLs - REMOVES FAKE INFORMATION"""
+    if not text:
+        return ""
+    
+    # Remove fabricated URLs (patterns like [http://www/](http://www/))
+    text = re.sub(r'\[http[s]?://[^\]]*\]', '', text)
+    text = re.sub(r'http[s]?://\S+(?:\.com|\.edu|\.in|\.org)?[^\s.]*\s?', '', text)
+    text = re.sub(r'\[www[^\]]*\]', '', text)
+    
+    # Remove obvious fabrications
+    text = re.sub(r'Click here[^\.]*.', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'For more information[^\.]*.', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'For details[^\.]*.', '', text, flags=re.IGNORECASE)
+    
+    # Remove "Authors:" sections that weren't in original
+    text = re.sub(r'Authors:.*?(?=\n|$)', '', text, flags=re.IGNORECASE)
+    
+    # Fix broken spacing
+    text = re.sub(r'(\d+)%([a-z])', r'\1% \2', text)  # "99%of" → "99% of"
+    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)  # "peakaccuracy" → "peak accuracy"
+    
+    # Fix character encoding issues
+    text = text.replace("Na've", "Naïve").replace("Nave", "Naïve")
+    
+    # Fix excessive punctuation
+    text = re.sub(r'([.!?])\s*([!?;])', r'\1', text)
+    text = re.sub(r';\s*:', ':', text)
+    
+    # Remove multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    
+    return text.strip()
+
+
 
 # --- TEXT CLEANING FUNCTION ---
 def clean_summary_text(text):
@@ -156,14 +191,14 @@ def load_model():
 
 
 def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
-    """Generate summary with AGGRESSIVE length enforcement"""
+    """Generate high-quality summaries without hallucinations"""
     if not text.strip():
         return "No content to summarize."
     
     try:
-        # AGGRESSIVE token calculation to force longer outputs
-        max_tokens = int(max_length * 2.0)  # Increased from 1.5x to 2.0x
-        min_tokens = min_length if min_length else int(max_length * 0.7)  # Enforce minimum 70% of target
+        # BALANCED token calculation (not too aggressive)
+        max_tokens = int(max_length * 1.8)
+        min_tokens = min_length if min_length else int(max_length * 0.5)
         
         # Tokenize input
         inputs = tokenizer(
@@ -174,49 +209,53 @@ def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
             padding=True
         )
         
-        # Generate summary with LENGTH-ENFORCING parameters
+        # Generate with QUALITY-FIRST parameters
         summary_ids = model.generate(
             inputs["input_ids"],
             max_length=max_tokens,
             min_length=min_tokens,
             num_beams=4,
-            length_penalty=0.6,  # REDUCED from 1.0 (penalizes brevity more)
+            length_penalty=0.8,  # Balanced (not too aggressive)
             early_stopping=True,
             no_repeat_ngram_size=3,
-            repetition_penalty=1.2,
-            temperature=0.7  # Slightly lower for more deterministic output
+            repetition_penalty=1.5,  # HIGHER - strongly penalizes repetition
+            temperature=0.7,
+            do_sample=False
         )
         
-        # Decode and clean
+        # Decode
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        summary = clean_summary_text(summary)
         
-        # POST-PROCESSING: Enforce word count
-        words = summary.split()
-        target_words = int(max_length * 0.9)  # Allow 90% of target
+        # Clean hallucinations and formatting
+        summary = clean_and_validate_summary(summary)
+        summary = clean_summary_text(summary)  # Your existing cleaner
         
-        if len(words) < target_words:
-            # If still too short, try to expand by generating again with higher parameters
-            st.warning(f"⚠️ Summary was {len(words)} words (target: {max_length}). Regenerating for better length...")
-            
-            # Recursive call with even more aggressive settings
+        # Check result quality
+        word_count = len(summary.split())
+        
+        if word_count < int(max_length * 0.6):
+            # If too short, try one more time with reduced beams (faster, acceptable quality)
             summary_ids = model.generate(
                 inputs["input_ids"],
-                max_length=int(max_tokens * 1.2),
-                min_length=target_words,
-                num_beams=2,
-                length_penalty=0.3,  # Very aggressive - strongly penalizes short summaries
+                max_length=int(max_tokens * 1.1),
+                min_length=int(max_length * 0.6),
+                num_beams=2,  # Faster
+                length_penalty=0.6,
                 early_stopping=False,
-                no_repeat_ngram_size=2,
-                repetition_penalty=1.0
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.5
             )
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            summary = clean_and_validate_summary(summary)
             summary = clean_summary_text(summary)
         
         return summary
         
     except Exception as e:
         return f"Error generating summary: {str(e)}"
+
+
+
 
 
 
