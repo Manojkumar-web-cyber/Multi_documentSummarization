@@ -162,7 +162,7 @@ def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
     
     try:
         # Calculate token lengths
-        max_tokens = min(int(max_length * 1.5), 512)  # Allow more tokens for target word count
+        max_tokens = min(int(max_length * 1.5), 512)
         min_tokens = min_length if min_length else max(30, max_tokens // 3)
         
         # Tokenize input
@@ -180,10 +180,10 @@ def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
             max_length=max_tokens,
             min_length=min_tokens,
             num_beams=4,
-            length_penalty=1.0,  # Balanced for target length
+            length_penalty=1.0,
             early_stopping=True,
             no_repeat_ngram_size=3,
-            repetition_penalty=1.2,  # Avoid repetition
+            repetition_penalty=1.2,
             temperature=1.0
         )
         
@@ -228,7 +228,6 @@ def fast_combined_summary(file_contents, model, tokenizer, max_length=150):
 def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
     QUALITY MODE: Proper two-stage summarization for better quality
-    FIXED: Now uses appropriate lengths for multi-document summarization
     """
     if not file_contents:
         return "No content to summarize.", []
@@ -236,12 +235,10 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
     individual_summaries = []
     
     # Stage 1: Summarize each document individually
-    # Use longer length per document for better quality
     per_doc_length = max(80, max_length // len(file_contents)) if len(file_contents) > 1 else max_length
     
     for i, content in enumerate(file_contents):
         if content.strip():
-            # Generate individual summary with adequate length
             individual_summary = summarize_text(
                 content, 
                 model, 
@@ -255,7 +252,6 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
         # Stage 2: Combine individual summaries into final summary
         combined_text = " ".join(individual_summaries)
         
-        # Generate final combined summary at target length
         final_summary = summarize_text(
             combined_text, 
             model, 
@@ -264,7 +260,7 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
             min_length=max(max_length // 2, 50)
         )
         
-        # Format with paragraphs for readability
+        # Format with paragraphs
         final_summary = format_summary_with_paragraphs(final_summary)
         
         return final_summary, individual_summaries
@@ -367,10 +363,10 @@ with tab1:
                     st.markdown("### 📋 Combined Summary")
                     
                     word_count = len(final_summary.split())
-                    st.caption(f"**Summary length:** {word_count} words (target: {summary_length}) | **Sources:** {len(all_contents)} documents | **Mode:** {processing_mode}")
+                    st.caption(f"Summary length: {word_count} words (target: {summary_length}) | Sources: {len(all_contents)} documents | Mode: {processing_mode}")
                     
-                    # Display formatted summary
-                    st.markdown(f"``````")
+                    # FIXED: Use st.info() to display summary (your original method)
+                    st.info(final_summary)
                     
                     if intermediate_data:
                         with st.expander(f"🔍 {intermediate_label}"):
@@ -460,10 +456,10 @@ with tab2:
                         st.markdown("### 📋 Combined Summary")
                         
                         word_count = len(final_summary.split())
-                        st.caption(f"**Summary length:** {word_count} words (target: {summary_length}) | **Sources:** {len(all_contents)} documents | **Mode:** {processing_mode}")
+                        st.caption(f"Summary length: {word_count} words (target: {summary_length}) | Sources: {len(all_contents)} documents | Mode: {processing_mode}")
                         
-                        # Display formatted summary in a clean box
-                        st.markdown(f"``````")
+                        # FIXED: Use st.info() to display summary properly
+                        st.info(final_summary)
                         
                         if intermediate_data:
                             with st.expander(f"🔍 {intermediate_label}"):
@@ -492,7 +488,8 @@ with tab2:
                                 
                                 st.markdown(f"**{file_data['name']}** ({file_data['word_count']} words)")
                                 st.caption(f"Generated in {individual_end - individual_start:.2f}s | {len(individual_summary.split())} words")
-                                st.markdown(f"``````")
+                                # Use st.info() for display
+                                st.info(individual_summary)
                                 st.divider()
                                 
                 except Exception as e:
