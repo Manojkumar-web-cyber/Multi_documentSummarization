@@ -5,6 +5,8 @@ from PyPDF2 import PdfReader
 from pptx import Presentation
 from docx import Document
 import time
+import re
+
 
 st.set_page_config(page_title="Multi-Document Summarization", layout="wide")
 
@@ -20,7 +22,6 @@ with st.sidebar:
         help="Adjust the desired length of the summary"
     )
     
-    # NEW: Performance mode selection
     processing_mode = st.radio(
         "Processing Mode:",
         ["🚀 Fast Mode", "🎯 Quality Mode"],
@@ -28,6 +29,72 @@ with st.sidebar:
     )
     
     st.info(f"📝 Summary will be ~{summary_length} words")
+
+
+# --- TEXT CLEANING FUNCTION ---
+def clean_summary_text(text):
+    """Clean and format summary text for better readability"""
+    if not text:
+        return ""
+    
+    # Remove <n> tokens
+    text = re.sub(r'<n>', ' ', text)
+    
+    # Fix multiple periods/ellipses
+    text = re.sub(r'\.\.+', '.', text)
+    text = re.sub(r'\s*\.\s*\.\s*', '. ', text)
+    
+    # Fix spacing issues
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s+([.,!?])', r'\1', text)
+    
+    # Fix sentence capitalization
+    sentences = re.split(r'([.!?]+)', text)
+    formatted_sentences = []
+    for i in range(0, len(sentences)-1, 2):
+        sentence = sentences[i].strip()
+        if sentence:
+            # Capitalize first letter
+            sentence = sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence.upper()
+            punct = sentences[i+1] if i+1 < len(sentences) else '.'
+            formatted_sentences.append(sentence + punct)
+    
+    # Join and clean final text
+    text = ' '.join(formatted_sentences)
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
+
+def format_summary_with_paragraphs(text, words_per_paragraph=50):
+    """Break long summary into readable paragraphs"""
+    if not text:
+        return ""
+    
+    # Split into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    paragraphs = []
+    current_para = []
+    word_count = 0
+    
+    for sentence in sentences:
+        sentence_words = len(sentence.split())
+        
+        if word_count + sentence_words > words_per_paragraph and current_para:
+            paragraphs.append(' '.join(current_para))
+            current_para = [sentence]
+            word_count = sentence_words
+        else:
+            current_para.append(sentence)
+            word_count += sentence_words
+    
+    # Add remaining sentences
+    if current_para:
+        paragraphs.append(' '.join(current_para))
+    
+    return '\n\n'.join(paragraphs)
+
 
 # --- TEXT EXTRACTION FUNCTIONS ---
 def extract_text_from_pdf(file):
@@ -44,6 +111,7 @@ def extract_text_from_pdf(file):
         st.error(f"Error reading PDF: {e}")
     return text.strip()
 
+
 def extract_text_from_pptx(file):
     """Extracts text content from a PPTX file."""
     text = ""
@@ -58,6 +126,7 @@ def extract_text_from_pptx(file):
         st.error(f"Error reading PPTX: {e}")
     return text.strip()
 
+
 def extract_text_from_docx(file):
     """Extracts text content from a DOCX file."""
     text = ""
@@ -70,6 +139,7 @@ def extract_text_from_docx(file):
     except Exception as e:
         st.error(f"Error reading DOCX: {e}")
     return text.strip()
+
 
 # --- MODEL LOADING ---
 @st.cache_resource(show_spinner=False)
@@ -84,14 +154,18 @@ def load_model():
         st.error(f"Error loading model: {e}")
         return None, None
 
-def summarize_text(text, model, tokenizer, max_length=150):
-    """Generate summary for a single text with adjustable length"""
+
+def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
+    """Generate summary for a single text with adjustable length and better quality"""
     if not text.strip():
         return "No content to summarize."
     
     try:
-        max_tokens = min(int(max_length * 1.3), 512)
+        # Calculate token lengths
+        max_tokens = min(int(max_length * 1.5), 512)  # Allow more tokens for target word count
+        min_tokens = min_length if min_length else max(30, max_tokens // 3)
         
+        # Tokenize input
         inputs = tokenizer(
             text, 
             return_tensors="pt", 
@@ -100,72 +174,103 @@ def summarize_text(text, model, tokenizer, max_length=150):
             padding=True
         )
         
+        # Generate summary with optimized parameters
         summary_ids = model.generate(
             inputs["input_ids"],
             max_length=max_tokens,
-            min_length=max(30, max_tokens // 3),
+            min_length=min_tokens,
             num_beams=4,
+            length_penalty=1.0,  # Balanced for target length
             early_stopping=True,
-            length_penalty=0.8,
             no_repeat_ngram_size=3,
+            repetition_penalty=1.2,  # Avoid repetition
+            temperature=1.0
         )
+        
+        # Decode and clean
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-        return summary.replace("<n>", " ")
+        summary = clean_summary_text(summary)
+        
+        return summary
+        
     except Exception as e:
         return f"Error generating summary: {str(e)}"
 
-# Load model
-model, tokenizer = load_model()
 
 # --- OPTIMIZED SUMMARIZATION STRATEGIES ---
 def fast_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
     FAST MODE: Extract key sentences from each document and combine them
-    This is much faster than full summarization for each document
     """
     if not file_contents:
         return "No content to summarize.", []
     
-    # Extract important sentences from each document (simple heuristic)
     important_sentences = []
     
     for content in file_contents:
         if content.strip():
-            sentences = content.split('.')
-            # Take first 2 sentences and last 2 sentences from each document
-            important_sentences.extend(sentences[:2])  # Introduction
-            important_sentences.extend(sentences[-2:]) # Conclusion
+            sentences = re.split(r'(?<=[.!?])\s+', content)
+            # Take first 3 and last 2 sentences from each document
+            important_sentences.extend(sentences[:3])
+            if len(sentences) > 5:
+                important_sentences.extend(sentences[-2:])
     
-    # Combine and summarize
-    combined_text = ". ".join([s.strip() for s in important_sentences if s.strip()])
+    combined_text = " ".join([s.strip() for s in important_sentences if s.strip()])
     
     if combined_text:
         final_summary = summarize_text(combined_text, model, tokenizer, max_length)
+        final_summary = format_summary_with_paragraphs(final_summary)
         return final_summary, important_sentences
     else:
         return "No meaningful content found.", []
 
+
 def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
-    QUALITY MODE: Two-step summarization (slower but better quality)
+    QUALITY MODE: Proper two-stage summarization for better quality
+    FIXED: Now uses appropriate lengths for multi-document summarization
     """
     if not file_contents:
         return "No content to summarize.", []
     
     individual_summaries = []
     
+    # Stage 1: Summarize each document individually
+    # Use longer length per document for better quality
+    per_doc_length = max(80, max_length // len(file_contents)) if len(file_contents) > 1 else max_length
+    
     for i, content in enumerate(file_contents):
         if content.strip():
-            # Use shorter length for individual summaries to save time
-            individual_summary = summarize_text(content, model, tokenizer, max_length//2)
+            # Generate individual summary with adequate length
+            individual_summary = summarize_text(
+                content, 
+                model, 
+                tokenizer, 
+                max_length=per_doc_length,
+                min_length=per_doc_length // 2
+            )
             individual_summaries.append(individual_summary)
     
     if individual_summaries:
-        combined_summaries_text = " ".join(individual_summaries)
-        final_summary = summarize_text(combined_summaries_text, model, tokenizer, max_length)
+        # Stage 2: Combine individual summaries into final summary
+        combined_text = " ".join(individual_summaries)
+        
+        # Generate final combined summary at target length
+        final_summary = summarize_text(
+            combined_text, 
+            model, 
+            tokenizer, 
+            max_length=max_length,
+            min_length=max(max_length // 2, 50)
+        )
+        
+        # Format with paragraphs for readability
+        final_summary = format_summary_with_paragraphs(final_summary)
+        
         return final_summary, individual_summaries
     else:
         return "No meaningful content found.", []
+
 
 # --- SIMPLIFIED FILE PROCESSING ---
 def process_single_file(file):
@@ -187,13 +292,19 @@ def process_single_file(file):
         st.warning(f"❌ Error processing {file.name}: {e}")
         return ""
 
+
+# Load model
+model, tokenizer = load_model()
+
 # --- STREAMLIT UI ---
 if 'text_documents' not in st.session_state:
     st.session_state.text_documents = [""]
 if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = []
 
+
 tab1, tab2 = st.tabs(["📝 Multiple Text Inputs", "📄 File Upload"])
+
 
 with tab1:
     st.write("**Enter multiple documents below (one per box):**")
@@ -226,10 +337,8 @@ with tab1:
         with st.spinner("Generating summary..."):
             start_time = time.time()
             try:
-                # Get text contents
                 text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
                 
-                # Get file contents if needed
                 file_contents = []
                 if summary_type_text == "Combined Tab Data (Text Inputs + Uploaded Files)" and st.session_state.uploaded_files:
                     for file in st.session_state.uploaded_files:
@@ -242,7 +351,6 @@ with tab1:
                 if not all_contents:
                     st.warning("Please provide some text or files to summarize.")
                 else:
-                    # Choose strategy based on mode
                     if processing_mode == "🚀 Fast Mode":
                         final_summary, intermediate_data = fast_combined_summary(
                             all_contents, model, tokenizer, summary_length
@@ -252,27 +360,29 @@ with tab1:
                         final_summary, intermediate_data = quality_combined_summary(
                             all_contents, model, tokenizer, summary_length
                         )
-                        intermediate_label = "Intermediate Summaries Used"
+                        intermediate_label = "Intermediate Summaries"
                     
                     end_time = time.time()
                     st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                     st.markdown("### 📋 Combined Summary")
                     
                     word_count = len(final_summary.split())
-                    st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
+                    st.caption(f"**Summary length:** {word_count} words (target: {summary_length}) | **Sources:** {len(all_contents)} documents | **Mode:** {processing_mode}")
                     
-                    st.info(final_summary)
+                    # Display formatted summary
+                    st.markdown(f"``````")
                     
-                    # Show intermediate data
                     if intermediate_data:
                         with st.expander(f"🔍 {intermediate_label}"):
                             for i, data in enumerate(intermediate_data):
                                 st.write(f"**Document {i+1}:**")
-                                st.text(data)
+                                cleaned_data = clean_summary_text(str(data)) if isinstance(data, str) else str(data)
+                                st.text(cleaned_data[:500] + "..." if len(cleaned_data) > 500 else cleaned_data)
                                 st.divider()
                         
             except Exception as e:
                 st.error(f"Error generating summary: {e}")
+
 
 with tab2:
     st.write("**Upload files (.txt, .pdf, .pptx, .docx) for summarization:**")
@@ -290,7 +400,6 @@ with tab2:
     if st.session_state.uploaded_files:
         st.write(f"**📁 {len(st.session_state.uploaded_files)} file(s) uploaded**")
         
-        # Process files and show preview
         file_contents_data = []
         for file in st.session_state.uploaded_files:
             content = process_single_file(file)
@@ -324,10 +433,8 @@ with tab2:
             with st.spinner("Processing files and generating summary..."):
                 start_time = time.time()
                 try:
-                    # Get file contents
                     file_contents_list = [file_data['content'] for file_data in file_contents_data]
                     
-                    # Get text contents if needed
                     text_contents = []
                     if file_summary_type == "Combined Tab Data (Uploaded Files + Text Inputs)":
                         text_contents = [doc for doc in st.session_state.text_documents if doc.strip()]
@@ -337,7 +444,6 @@ with tab2:
                     if not all_contents:
                         st.warning("No readable content was found.")
                     else:
-                        # Choose strategy based on mode
                         if processing_mode == "🚀 Fast Mode":
                             final_summary, intermediate_data = fast_combined_summary(
                                 all_contents, model, tokenizer, summary_length
@@ -347,23 +453,24 @@ with tab2:
                             final_summary, intermediate_data = quality_combined_summary(
                                 all_contents, model, tokenizer, summary_length
                             )
-                            intermediate_label = "Intermediate Summaries Used"
+                            intermediate_label = "Intermediate Summaries"
                         
                         end_time = time.time()
                         st.success(f"✅ Combined Summary Generated! (Time: {end_time - start_time:.2f}s)")
                         st.markdown("### 📋 Combined Summary")
                         
                         word_count = len(final_summary.split())
-                        st.caption(f"Summary length: ~{word_count} words | Combined from {len(all_contents)} sources | Mode: {processing_mode}")
+                        st.caption(f"**Summary length:** {word_count} words (target: {summary_length}) | **Sources:** {len(all_contents)} documents | **Mode:** {processing_mode}")
                         
-                        st.info(final_summary)
+                        # Display formatted summary in a clean box
+                        st.markdown(f"``````")
                         
-                        # Show intermediate data
                         if intermediate_data:
                             with st.expander(f"🔍 {intermediate_label}"):
                                 for i, data in enumerate(intermediate_data):
-                                    st.write(f"**Document {i+1}:**")
-                                    st.text(data)
+                                    st.write(f"**Source {i+1}:**")
+                                    cleaned_data = clean_summary_text(str(data)) if isinstance(data, str) else str(data)
+                                    st.text(cleaned_data[:500] + "..." if len(cleaned_data) > 500 else cleaned_data)
                                     st.divider()
                         
                         # Individual summaries
@@ -373,19 +480,24 @@ with tab2:
                             
                             for file_data in file_contents_data:
                                 with st.spinner(f"Summarizing {file_data['name']}..."):
+                                    individual_start = time.time()
                                     individual_summary = summarize_text(
                                         file_data['content'], 
                                         model, 
                                         tokenizer, 
                                         max_length=summary_length
                                     )
+                                    individual_summary = format_summary_with_paragraphs(individual_summary)
+                                    individual_end = time.time()
                                 
                                 st.markdown(f"**{file_data['name']}** ({file_data['word_count']} words)")
-                                st.info(individual_summary)
+                                st.caption(f"Generated in {individual_end - individual_start:.2f}s | {len(individual_summary.split())} words")
+                                st.markdown(f"``````")
                                 st.divider()
                                 
                 except Exception as e:
                     st.error(f"Error generating summary: {e}")
+
 
 # --- MODEL METRICS ---
 st.divider()
