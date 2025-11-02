@@ -282,6 +282,3 @@ st.write("- **Cleaning**: Removes HTML, URLs, noise, `<n>` tags, extra punctuati
 st.write("- **Speed**: Quantization, fewer beams (2), input chunking; expect 2-5x faster [web:22]")
 st.write("- **Quality**: Strict length enforcement, grammar fixes, no hallucinations from noise [web:25][web:8]")
 st.write("- **Interface**: Progress bars, word count validation for better UX")
-
-### Deployment Notes
-Deploy this in your GitHub Codespaces setup (as per your recent history). Run `streamlit run app.py`. Test with the same files: summaries should now be clean, ~150 words, under 30s each on CPU. If still slow, add GPU via Codespaces advanced settings. For your teaching prep, this tool can summarize seminar notes efficiently [web:19].
