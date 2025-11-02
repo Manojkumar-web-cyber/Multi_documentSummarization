@@ -229,25 +229,7 @@ def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
         # Clean hallucinations and formatting
         summary = clean_and_validate_summary(summary)
         summary = clean_summary_text(summary)  # Your existing cleaner
-        
-        # Check result quality
-        word_count = len(summary.split())
-        
-        if word_count < int(max_length * 0.6):
-            # If too short, try one more time with reduced beams (faster, acceptable quality)
-            summary_ids = model.generate(
-                inputs["input_ids"],
-                max_length=int(max_tokens * 1.1),
-                min_length=int(max_length * 0.6),
-                num_beams=2,  # Faster
-                length_penalty=0.6,
-                early_stopping=False,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.5
-            )
-            summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-            summary = clean_and_validate_summary(summary)
-            summary = clean_summary_text(summary)
+       
         
         return summary
         
