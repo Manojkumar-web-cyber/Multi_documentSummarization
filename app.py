@@ -156,14 +156,14 @@ def load_model():
 
 
 def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
-    """Generate summary for a single text with adjustable length and better quality"""
+    """Generate summary with AGGRESSIVE length enforcement"""
     if not text.strip():
         return "No content to summarize."
     
     try:
-        # Calculate token lengths
-        max_tokens = min(int(max_length * 1.5), 512)
-        min_tokens = min_length if min_length else max(30, max_tokens // 3)
+        # AGGRESSIVE token calculation to force longer outputs
+        max_tokens = int(max_length * 2.0)  # Increased from 1.5x to 2.0x
+        min_tokens = min_length if min_length else int(max_length * 0.7)  # Enforce minimum 70% of target
         
         # Tokenize input
         inputs = tokenizer(
@@ -174,27 +174,50 @@ def summarize_text(text, model, tokenizer, max_length=150, min_length=None):
             padding=True
         )
         
-        # Generate summary with optimized parameters
+        # Generate summary with LENGTH-ENFORCING parameters
         summary_ids = model.generate(
             inputs["input_ids"],
             max_length=max_tokens,
             min_length=min_tokens,
             num_beams=4,
-            length_penalty=1.0,
+            length_penalty=0.6,  # REDUCED from 1.0 (penalizes brevity more)
             early_stopping=True,
             no_repeat_ngram_size=3,
             repetition_penalty=1.2,
-            temperature=1.0
+            temperature=0.7  # Slightly lower for more deterministic output
         )
         
         # Decode and clean
         summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         summary = clean_summary_text(summary)
         
+        # POST-PROCESSING: Enforce word count
+        words = summary.split()
+        target_words = int(max_length * 0.9)  # Allow 90% of target
+        
+        if len(words) < target_words:
+            # If still too short, try to expand by generating again with higher parameters
+            st.warning(f"⚠️ Summary was {len(words)} words (target: {max_length}). Regenerating for better length...")
+            
+            # Recursive call with even more aggressive settings
+            summary_ids = model.generate(
+                inputs["input_ids"],
+                max_length=int(max_tokens * 1.2),
+                min_length=target_words,
+                num_beams=2,
+                length_penalty=0.3,  # Very aggressive - strongly penalizes short summaries
+                early_stopping=False,
+                no_repeat_ngram_size=2,
+                repetition_penalty=1.0
+            )
+            summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            summary = clean_summary_text(summary)
+        
         return summary
         
     except Exception as e:
         return f"Error generating summary: {str(e)}"
+
 
 
 # --- OPTIMIZED SUMMARIZATION STRATEGIES ---
@@ -227,15 +250,15 @@ def fast_combined_summary(file_contents, model, tokenizer, max_length=150):
 
 def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
     """
-    QUALITY MODE: Proper two-stage summarization for better quality
+    QUALITY MODE: Two-stage summarization with proper length enforcement
     """
     if not file_contents:
         return "No content to summarize.", []
     
     individual_summaries = []
     
-    # Stage 1: Summarize each document individually
-    per_doc_length = max(80, max_length // len(file_contents)) if len(file_contents) > 1 else max_length
+    # Stage 1: Summarize each document with ADEQUATE length
+    per_doc_length = max(120, int(max_length * 0.8 / len(file_contents))) if len(file_contents) > 1 else max_length
     
     for i, content in enumerate(file_contents):
         if content.strip():
@@ -244,12 +267,12 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
                 model, 
                 tokenizer, 
                 max_length=per_doc_length,
-                min_length=per_doc_length // 2
+                min_length=int(per_doc_length * 0.6)  # Enforce 60% minimum
             )
             individual_summaries.append(individual_summary)
     
     if individual_summaries:
-        # Stage 2: Combine individual summaries into final summary
+        # Stage 2: Combine and create final summary
         combined_text = " ".join(individual_summaries)
         
         final_summary = summarize_text(
@@ -257,7 +280,7 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
             model, 
             tokenizer, 
             max_length=max_length,
-            min_length=max(max_length // 2, 50)
+            min_length=int(max_length * 0.7)  # Enforce 70% minimum of target
         )
         
         # Format with paragraphs
@@ -266,6 +289,7 @@ def quality_combined_summary(file_contents, model, tokenizer, max_length=150):
         return final_summary, individual_summaries
     else:
         return "No meaningful content found.", []
+
 
 
 # --- SIMPLIFIED FILE PROCESSING ---
