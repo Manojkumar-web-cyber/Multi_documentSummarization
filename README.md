@@ -54,7 +54,7 @@ This project implements a **state-of-the-art multi-document summarization system
 
 ## 📊 Model Performance
 
-### Pegasus (CNN/DailyMail) - Your Model
+### Pegasus (CNN/DailyMail) - YouR102025mano
 
 | Metric | Score | Interpretation |
 |--------|-------|-----------------|
